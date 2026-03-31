@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.scheduler import start_scheduler, stop_scheduler, update_encar_data
+from app.database import read_cars_page, read_meta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_FILE = BASE_DIR / "data" / "encar_cars.json"
@@ -98,6 +99,9 @@ def _env_flag(name: str, default: bool) -> bool:
 
 
 def _load_meta() -> dict[str, Any]:
+    db_meta = read_meta()
+    if db_meta:
+        return db_meta
     if not META_FILE.exists():
         return {}
     try:
@@ -142,11 +146,25 @@ def get_cars(
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ) -> dict[str, Any]:
-    cars = _load_cars_with_optional_limit()
-    total = len(cars)
-    start = (page - 1) * page_size
-    end = start + page_size
-    items = cars[start:end]
+    items, total = read_cars_page(page=page, page_size=page_size)
+    if total == 0:
+        cars = _load_cars_with_optional_limit()
+        total = len(cars)
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = cars[start:end]
+    limit = _get_test_limit()
+    if limit is not None:
+        effective_total = min(total, limit)
+        start = (page - 1) * page_size
+        end = start + page_size
+        if start >= effective_total:
+            items = []
+        else:
+            items = items[: max(0, min(page_size, effective_total - start))]
+        total = effective_total
+    else:
+        end = page * page_size
     has_more = end < total
     return {
         "items": items,
