@@ -10,7 +10,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.scheduler import start_scheduler, stop_scheduler, update_encar_data
-from app.database import read_cars_page, read_meta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_FILE = BASE_DIR / "data" / "encar_cars.json"
@@ -22,8 +21,6 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "templates"))
 DEFAULT_PAGE_SIZE = 24
 MAX_PAGE_SIZE = 100
 TEST_LIMIT_ENV = "ENCAR_TEST_LIMIT"
-ENABLE_SCHEDULER_ENV = "ENCAR_ENABLE_SCHEDULER"
-RUN_STARTUP_UPDATE_ENV = "ENCAR_RUN_STARTUP_UPDATE"
 
 
 def _normalize_photo_url(photo: Any) -> str | None:
@@ -91,17 +88,7 @@ def _load_cars_with_optional_limit() -> list[dict[str, Any]]:
     return cars[:limit]
 
 
-def _env_flag(name: str, default: bool) -> bool:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default
-    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _load_meta() -> dict[str, Any]:
-    db_meta = read_meta()
-    if db_meta:
-        return db_meta
     if not META_FILE.exists():
         return {}
     try:
@@ -116,16 +103,13 @@ def _load_meta() -> dict[str, Any]:
 
 @app.on_event("startup")
 def on_startup() -> None:
-    if _env_flag(RUN_STARTUP_UPDATE_ENV, True):
-        update_encar_data()
-    if _env_flag(ENABLE_SCHEDULER_ENV, True):
-        start_scheduler()
+    update_encar_data()
+    start_scheduler()
 
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
-    if _env_flag(ENABLE_SCHEDULER_ENV, True):
-        stop_scheduler()
+    stop_scheduler()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -146,25 +130,11 @@ def get_cars(
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ) -> dict[str, Any]:
-    items, total = read_cars_page(page=page, page_size=page_size)
-    if total == 0:
-        cars = _load_cars_with_optional_limit()
-        total = len(cars)
-        start = (page - 1) * page_size
-        end = start + page_size
-        items = cars[start:end]
-    limit = _get_test_limit()
-    if limit is not None:
-        effective_total = min(total, limit)
-        start = (page - 1) * page_size
-        end = start + page_size
-        if start >= effective_total:
-            items = []
-        else:
-            items = items[: max(0, min(page_size, effective_total - start))]
-        total = effective_total
-    else:
-        end = page * page_size
+    cars = _load_cars_with_optional_limit()
+    total = len(cars)
+    start = (page - 1) * page_size
+    end = start + page_size
+    items = cars[start:end]
     has_more = end < total
     return {
         "items": items,
