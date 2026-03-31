@@ -13,7 +13,7 @@ DEFAULT_QUERY = "(And.Hidden.N._.CarType.A.)"
 DEFAULT_BATCH_SIZE = 200
 REQUEST_TIMEOUT_SECONDS = 90
 REQUEST_RETRIES = 3
-DEFAULT_SPLIT_FIELDS = ("Model", "Badge", "FormYear", "Year")
+DEFAULT_SPLIT_FIELDS = ("ModelGroup", "Model", "Badge", "FormYear", "Year")
 
 
 def build_sr(start: int, end: int) -> str:
