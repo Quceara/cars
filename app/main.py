@@ -21,6 +21,8 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "templates"))
 DEFAULT_PAGE_SIZE = 24
 MAX_PAGE_SIZE = 100
 TEST_LIMIT_ENV = "ENCAR_TEST_LIMIT"
+ENABLE_SCHEDULER_ENV = "ENCAR_ENABLE_SCHEDULER"
+RUN_STARTUP_UPDATE_ENV = "ENCAR_RUN_STARTUP_UPDATE"
 
 
 def _normalize_photo_url(photo: Any) -> str | None:
@@ -88,6 +90,13 @@ def _load_cars_with_optional_limit() -> list[dict[str, Any]]:
     return cars[:limit]
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _load_meta() -> dict[str, Any]:
     if not META_FILE.exists():
         return {}
@@ -103,13 +112,16 @@ def _load_meta() -> dict[str, Any]:
 
 @app.on_event("startup")
 def on_startup() -> None:
-    update_encar_data()
-    start_scheduler()
+    if _env_flag(RUN_STARTUP_UPDATE_ENV, True):
+        update_encar_data()
+    if _env_flag(ENABLE_SCHEDULER_ENV, True):
+        start_scheduler()
 
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
-    stop_scheduler()
+    if _env_flag(ENABLE_SCHEDULER_ENV, True):
+        stop_scheduler()
 
 
 @app.get("/", response_class=HTMLResponse)
