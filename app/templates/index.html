@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ENCAR Cars</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+</head>
+<body data-page-size="{{ default_page_size }}">
+<main class="container">
+    <h1>Список машин ENCAR</h1>
+    <p class="meta">
+        Всего на сайте ENCAR:
+        {{ meta.get("total_on_site", "нет данных") }}
+    </p>
+    <p class="meta">Всего в файле: <span id="file-count">0</span></p>
+
+    <section id="cars-grid" class="grid"></section>
+    <p id="empty-state" class="meta hidden">Данных пока нет. Запустите обновление через /update-now.</p>
+    <div class="actions">
+        <button id="load-more-btn" class="load-more">Показать еще</button>
+    </div>
+</main>
+<script>
+const PAGE_SIZE = Number(document.body.dataset.pageSize || "24");
+let currentPage = 1;
+let hasMore = true;
+
+const grid = document.getElementById("cars-grid");
+const loadMoreBtn = document.getElementById("load-more-btn");
+const emptyState = document.getElementById("empty-state");
+const fileCount = document.getElementById("file-count");
+
+function createCard(car) {
+    const card = document.createElement("article");
+    card.className = "card";
+
+    const title = `${car["марка"] || "-"} ${car["модель"] || "-"}`.trim();
+    const photo = car["фото"];
+    if (photo) {
+        const img = document.createElement("img");
+        img.className = "car-photo";
+        img.src = photo;
+        img.alt = title;
+        img.loading = "lazy";
+        card.appendChild(img);
+    } else {
+        const placeholder = document.createElement("div");
+        placeholder.className = "car-photo placeholder";
+        placeholder.textContent = "Нет фото";
+        card.appendChild(placeholder);
+    }
+
+    const info = document.createElement("div");
+    info.className = "car-info";
+    info.innerHTML = `
+        <h2>${title}</h2>
+        <ul>
+            <li><strong>Марка:</strong> ${car["марка"] ?? "-"}</li>
+            <li><strong>Модель:</strong> ${car["модель"] ?? "-"}</li>
+            <li><strong>Год:</strong> ${car["год"] ?? "-"}</li>
+            <li><strong>Пробег:</strong> ${car["пробег"] ?? "-"}</li>
+            <li><strong>Цена:</strong> ${car["цена"] ?? "-"}</li>
+        </ul>
+    `;
+    card.appendChild(info);
+    return card;
+}
+
+async function loadCars() {
+    if (!hasMore) return;
+    loadMoreBtn.disabled = true;
+    loadMoreBtn.textContent = "Загрузка...";
+    try {
+        const response = await fetch(`/api/cars?page=${currentPage}&page_size=${PAGE_SIZE}`);
+        const data = await response.json();
+        fileCount.textContent = data.total_in_file;
+        if (!data.items.length && currentPage === 1) {
+            emptyState.classList.remove("hidden");
+        }
+        data.items.forEach((car) => grid.appendChild(createCard(car)));
+        hasMore = data.has_more;
+        currentPage += 1;
+        loadMoreBtn.classList.toggle("hidden", !hasMore);
+    } catch (error) {
+        loadMoreBtn.textContent = "Ошибка, повторить";
+        loadMoreBtn.disabled = false;
+        return;
+    }
+    loadMoreBtn.disabled = false;
+    loadMoreBtn.textContent = "Показать еще";
+}
+
+loadMoreBtn.addEventListener("click", loadCars);
+loadCars();
+</script>
+</body>
+</html>
