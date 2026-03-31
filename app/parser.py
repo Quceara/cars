@@ -13,7 +13,16 @@ DEFAULT_QUERY = "(And.Hidden.N._.CarType.A.)"
 DEFAULT_BATCH_SIZE = 200
 REQUEST_TIMEOUT_SECONDS = 90
 REQUEST_RETRIES = 3
-DEFAULT_SPLIT_FIELDS = ("ModelGroup", "Model", "Badge", "FormYear", "Year")
+DEFAULT_SPLIT_FIELDS = (
+    "ModelGroup",
+    "Model",
+    "Badge",
+    "FormYear",
+    "Year",
+    "FuelType",
+    "Transmission",
+    "OfficeCityState",
+)
 
 
 def build_sr(start: int, end: int) -> str:
@@ -93,6 +102,36 @@ def extract_ids(items: list[dict[str, Any]]) -> list[str]:
             continue
         ids.append(str(raw_id))
     return ids
+
+
+def _raw_item_dedup_key(item: dict[str, Any]) -> str:
+    raw_id = item.get("Id")
+    if raw_id is not None:
+        return f"id:{raw_id}"
+
+    # Fallback for rare records without Id.
+    return "|".join(
+        [
+            str(item.get("Manufacturer") or ""),
+            str(item.get("Model") or ""),
+            str(normalize_year(item.get("Year")) or ""),
+            str(item.get("Mileage") or ""),
+            str(item.get("Price") or ""),
+            str(extract_photo_url(item) or ""),
+        ]
+    )
+
+
+def dedup_raw_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        key = _raw_item_dedup_key(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
 
 
 def normalize_year(raw_year: Any) -> Any:
@@ -309,25 +348,36 @@ def collect_query_recursive(
         verbose=False,
     )
 
-    if total is None or len(items) >= total:
-        return items
+    deduped_items = dedup_raw_items(items)
+    if total is None or len(deduped_items) >= total:
+        return deduped_items
     if depth >= len(split_fields):
         print(
-            f"Query is still truncated (got {len(items)} of {total}) but no split fields left."
+            f"Query is still truncated (got {len(deduped_items)} of {total}) but no split fields left."
         )
-        return items
+        return deduped_items
 
-    next_field = split_fields[depth]
-    child_queries = discover_queries_by_field(query, next_field)
-    if not child_queries:
+    selected_field: str | None = None
+    child_queries: list[str] = []
+    for idx in range(depth, len(split_fields)):
+        candidate_field = split_fields[idx]
+        candidate_queries = discover_queries_by_field(query, candidate_field)
+        candidate_queries = [child for child in candidate_queries if child != query]
+        if len(candidate_queries) > 1:
+            selected_field = candidate_field
+            child_queries = candidate_queries
+            depth = idx
+            break
+
+    if not selected_field or not child_queries:
         print(
-            f"Query is truncated (got {len(items)} of {total}) and no {next_field} splits found."
+            f"Query is truncated (got {len(deduped_items)} of {total}) and no deeper splits found."
         )
-        return items
+        return deduped_items
 
     print(
-        f"Query truncated (got {len(items)} of {total}). "
-        f"Splitting by {next_field}: {len(child_queries)} segments."
+        f"Query truncated (got {len(deduped_items)} of {total}). "
+        f"Splitting by {selected_field}: {len(child_queries)} segments."
     )
     merged: list[dict[str, Any]] = []
     for child_query in child_queries:
@@ -339,7 +389,7 @@ def collect_query_recursive(
                 split_fields=split_fields,
             )
         )
-    return merged
+    return dedup_raw_items(merged)
 
 
 def collect_all_cars_segmented(
@@ -373,6 +423,7 @@ def collect_all_cars_segmented(
             depth=0,
             split_fields=DEFAULT_SPLIT_FIELDS,
         )
+        segment_items = dedup_raw_items(segment_items)
         segment_total_payload = fetch_batch(start=0, batch_size=1, query=manufacturer_query)
         segment_total = segment_total_payload.get("Count")
         raw_collected += len(segment_items)
