@@ -13,6 +13,7 @@ DEFAULT_QUERY = "(And.Hidden.N._.CarType.A.)"
 DEFAULT_BATCH_SIZE = 200
 REQUEST_TIMEOUT_SECONDS = 90
 REQUEST_RETRIES = 3
+DEFAULT_SPLIT_FIELDS = ("Model", "Badge", "FormYear", "Year")
 
 
 def build_sr(start: int, end: int) -> str:
@@ -289,7 +290,7 @@ def discover_queries_by_field(query: str, field_name: str) -> list[str]:
         elif isinstance(current, list):
             stack.extend(current)
         elif isinstance(current, str):
-            if token in current and "CarType.A" in current:
+            if token in current and current.startswith("("):
                 found.add(current)
 
     return sorted(found)
@@ -299,7 +300,7 @@ def collect_query_recursive(
     query: str,
     batch_size: int,
     depth: int = 0,
-    max_depth: int = 2,
+    split_fields: tuple[str, ...] = DEFAULT_SPLIT_FIELDS,
 ) -> list[dict[str, Any]]:
     items, total = _collect_batches_for_query(
         query=query,
@@ -310,12 +311,18 @@ def collect_query_recursive(
 
     if total is None or len(items) >= total:
         return items
-    if depth >= max_depth:
+    if depth >= len(split_fields):
+        print(
+            f"Query is still truncated (got {len(items)} of {total}) but no split fields left."
+        )
         return items
 
-    next_field = "Model" if depth == 0 else "Badge"
+    next_field = split_fields[depth]
     child_queries = discover_queries_by_field(query, next_field)
     if not child_queries:
+        print(
+            f"Query is truncated (got {len(items)} of {total}) and no {next_field} splits found."
+        )
         return items
 
     print(
@@ -329,7 +336,7 @@ def collect_query_recursive(
                 query=child_query,
                 batch_size=batch_size,
                 depth=depth + 1,
-                max_depth=max_depth,
+                split_fields=split_fields,
             )
         )
     return merged
@@ -364,7 +371,7 @@ def collect_all_cars_segmented(
             query=manufacturer_query,
             batch_size=batch_size,
             depth=0,
-            max_depth=2,
+            split_fields=DEFAULT_SPLIT_FIELDS,
         )
         segment_total_payload = fetch_batch(start=0, batch_size=1, query=manufacturer_query)
         segment_total = segment_total_payload.get("Count")
