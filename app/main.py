@@ -23,6 +23,17 @@ MAX_PAGE_SIZE = 100
 TEST_LIMIT_ENV = "ENCAR_TEST_LIMIT"
 
 
+def _build_car_dedup_key(car: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        car.get("марка"),
+        car.get("модель"),
+        car.get("год"),
+        car.get("пробег"),
+        car.get("цена"),
+        car.get("фото"),
+    )
+
+
 def _normalize_photo_url(photo: Any) -> str | None:
     if not isinstance(photo, str) or not photo:
         return None
@@ -52,6 +63,7 @@ def _load_cars() -> list[dict[str, Any]]:
         return []
 
     cars: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
     for item in data:
         if not isinstance(item, dict):
             continue
@@ -63,6 +75,10 @@ def _load_cars() -> list[dict[str, Any]]:
             "цена": item.get("цена"),
             "фото": _normalize_photo_url(item.get("фото")),
         }
+        key = _build_car_dedup_key(car)
+        if key in seen:
+            continue
+        seen.add(key)
         cars.append(car)
     return cars
 
